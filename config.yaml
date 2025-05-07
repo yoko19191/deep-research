@@ -1,0 +1,28 @@
+### LLM Setting ### 
+chat_model: 
+  API_KEY: ${OPENAI_API_KEY}
+  API_BASE: ${OPENAI_BASE_URL}
+  model_id: ${MODEL_NAME}
+
+
+### Embedding Model Setting ##
+embedding_model:
+  API_KEY: ${EMBEDDING_API_KEY}
+  API_BASE: ${EMBEDDING_API_BASE}
+  model_id: ${EMBEDDING_MODEL_NAME}
+
+
+### Playwright Setting ###
+crawler:
+  # Maximum time in seconds to wait for requests to complete
+  timeout: 30.0
+  # Run browser in headless mode (no GUI)
+  headless: true
+  # Enable verbose logging
+  verbose: false
+  # Enable response caching
+  cache_enabled: true
+
+
+
+

@@ -4,4 +4,12 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "bs4>=0.0.2",
+    "crawl4ai>=0.6.2",
+    "fastapi>=0.115.12",
+    "playwright>=1.52.0",
+    "python-dotenv>=1.1.0",
+    "pyyaml>=6.0.2",
+    "uvicorn>=0.34.2",
+]
