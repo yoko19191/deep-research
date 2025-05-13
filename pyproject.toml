@@ -1,7 +1,7 @@
 [project]
 name = "deep-research"
 version = "0.1.0"
-description = "Add your description here"
+description = "Deep and Efficient Deep Research with ReAct & CodeAct Orchestration"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -11,5 +11,11 @@ dependencies = [
     "playwright>=1.52.0",
     "python-dotenv>=1.1.0",
     "pyyaml>=6.0.2",
+    "sqlmodel>=0.0.24",
     "uvicorn>=0.34.2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
 ]

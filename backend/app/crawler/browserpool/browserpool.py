@@ -15,7 +15,7 @@ from core import load_config
 
 # Default configuration if none is provided
 default_config = {
-        'crawler': {
+        'CRAWLER': {
             'headless': True
         }
     }
@@ -41,7 +41,7 @@ class BrowserPlaywright:
         """Initialize a new BrowserPlaywright instance."""
         self.playwright = None 
         self.browser = None 
-        self.headless = CONFIG['crawler']['headless'] 
+        self.headless = CONFIG['CRAWLER']['headless'] 
         
     async def __aenter__(self):
         """

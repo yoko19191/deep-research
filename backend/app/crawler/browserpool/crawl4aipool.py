@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 from core import load_config
 
 default_config = {
-        'crawler': {
+        'CRAWLER': {
             'timeout': 30.0,
             'headless': True,
             'verbose': False,
@@ -48,16 +48,16 @@ class CrawlerInstance:
         """
         # 从配置文件读取参数
         self.browser_config = BrowserConfig(
-            headless=CONFIG['crawler']['headless'], 
-            verbose=CONFIG['crawler']['verbose'],
+            headless=CONFIG['CRAWLER']['headless'], 
+            verbose=CONFIG['CRAWLER']['verbose'],
         )
         self.run_config = CrawlerRunConfig(
-            cache_mode=CacheMode.ENABLED if CONFIG['crawler']['cache_enabled'] else CacheMode.DISABLED, 
+            cache_mode=CacheMode.ENABLED if CONFIG['CRAWLER']['cache_enabled'] else CacheMode.DISABLED, 
             stream=False
         )
         self.crawler = None
         # 从配置文件读取超时设置
-        self.default_timeout = CONFIG['crawler']['timeout']
+        self.default_timeout = CONFIG['CRAWLER']['timeout']
         logger.debug("CrawlerInstance initialized with timeout: %s", self.default_timeout)
 
     async def __aenter__(self):
@@ -111,7 +111,7 @@ class CrawlerInstance:
             # Set timeout for the entire batch of requests
             responses = await asyncio.wait_for(
                 self.crawler.arun_many(urls=urls, config=self.run_config),
-                timeout=CONFIG['crawler']['timeout']
+                timeout=CONFIG['CRAWLER']['timeout']
             )
             
             for r in responses:
