@@ -6,11 +6,11 @@ It uses a browser pool to manage browser instances efficiently.
 """
 
 from bs4 import BeautifulSoup
-from browserpool import BrowserPool, BrowserPlaywright
+from app.crawler.browserpool import BrowserPool, BrowserPlaywright
 from typing import Optional, List, Dict, Any
 import logging
 import asyncio
-from core import load_config
+from app.core import load_config
 
 # Get module logger that inherits from the root logger
 logger = logging.getLogger(__name__)

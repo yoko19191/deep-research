@@ -22,12 +22,8 @@ RERANK_MODEL:
 
 ### VectorStore Setting ###
 VECTOR_STORE:
-  type: chroma
-  persist_directory: ./chroma_db
-  embedding: ${EMBEDDING_MODEL}
-  
-
-
+  type: lancedb
+  persist_directory: ./app/.local_db
 
 
 ### Playwright Setting ###

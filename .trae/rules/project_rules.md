@@ -5,3 +5,5 @@
 使用 pathlib 管理文件路径
 
 在 api 文件夹下集中管理 Exception
+
+使用 pytest 进行单元测试, 测试代码存储在 tests 目录下

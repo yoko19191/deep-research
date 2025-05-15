@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 import atexit 
 import asyncio 
 
-from core import load_config
+from app.core import load_config
 
 # Default configuration if none is provided
 default_config = {

@@ -1,29 +1,29 @@
 """
-Bing Search Engine Module.
+Baidu Search Engine Module.
 
-This module provides a class for performing searches on Bing and parsing the results.
+This module provides a class for performing searches on Baidu and parsing the results.
 It uses a browser pool to manage browser instances efficiently.
 """
 
 from bs4 import BeautifulSoup
-from browserpool import BrowserPool, BrowserPlaywright
-from typing import Optional, List, Dict
-import unicodedata
+from app.crawler.browserpool import BrowserPool, BrowserPlaywright 
+from typing import Optional, List, Dict, Any
+import json
 import logging
 import asyncio
-from core import load_config
+from app.core import load_config
 
 # Get module logger that inherits from the root logger
 logger = logging.getLogger(__name__)
 
 # Default configuration
 default_config = {
-    'bing_search': {
-        'base_url': 'https://cn.bing.com',
-        'input_selector': 'input#sb_form_q',
-        'results_selector': 'li.b_algo',
-        'wait_time': 500,  # milliseconds
-        'result_wait_time': 2000,  # milliseconds
+    'baidu_search': {
+        'base_url': 'https://www.baidu.com/',
+        'input_selector': 'input[name="wd"]',
+        'submit_selector': 'input#su',
+        'results_selector': 'div.c-container',
+        'wait_time': 1000,  # milliseconds
         'timeout': 10000    # milliseconds
     }
 }
@@ -32,30 +32,30 @@ default_config = {
 CONFIG = load_config(default_config) or default_config
 
 
-class BingSearch:
+class BaiduSearch:
     """
-    A class for performing searches on Bing and parsing the results.
+    A class for performing searches on Baidu and parsing the results.
     
     This class uses a browser pool to manage browser instances and provides
     methods for executing searches and parsing the results.
     
     Attributes:
         browser_pool (BrowserPool): The pool of browser instances to use.
-        base_url (str): The base URL for Bing search.
+        base_url (str): The base URL for Baidu search.
         config (dict): Configuration parameters for the search.
     """
 
     def __init__(self, browser_pool: BrowserPool):
         """
-        Initialize a new BingSearch instance.
+        Initialize a new BaiduSearch instance.
         
         Args:
             browser_pool (BrowserPool): The pool of browser instances to use.
         """
         self.browser_pool = browser_pool
-        self.config = CONFIG['bing_search']
+        self.config = CONFIG['baidu_search']
         self.base_url = self.config['base_url']
-        logger.info("BingSearch initialized with base URL: %s", self.base_url)
+        logger.info("BaiduSearch initialized with base URL: %s", self.base_url)
 
     async def response(self, questions: Optional[List[str]]) -> Optional[Dict[str, List[Dict[str, str]]]]:
         """
@@ -97,7 +97,7 @@ class BingSearch:
 
         return results if results else None
 
-    async def run(self, browser: BrowserPlaywright, question: Optional[str]) -> str:
+    async def run(self, browser: BrowserPlaywright, question: str) -> str:
         """
         Execute a search query using the provided browser instance.
         
@@ -132,12 +132,12 @@ class BingSearch:
             
             # Submit the search
             logger.debug("Submitting search query")
-            await page.keyboard.press('Enter')
+            await page.click(self.config['submit_selector'])
             
             # Wait for results to load
             logger.debug("Waiting for search results")
             await page.wait_for_selector(self.config['results_selector'], timeout=self.config['timeout'])
-            await page.wait_for_timeout(self.config['result_wait_time'])
+            await page.wait_for_timeout(self.config['wait_time'])
             
             # Get the page content
             html = await page.content()
@@ -174,7 +174,7 @@ class BingSearch:
         try:
             logger.debug("Parsing search results HTML")
             soup = BeautifulSoup(html, "lxml")
-            items = soup.find_all("li", class_=lambda x: x and "b_algo" in x)
+            items = soup.find_all("div", class_="c-container")
             
             if not items:
                 logger.warning("No search result containers found in HTML")
@@ -185,32 +185,25 @@ class BingSearch:
             
             for item in items:
                 try:
-                    # Extract publisher and URL
-                    publisher_tag = item.find("a", class_="tilk")
-                    if not publisher_tag:
-                        logger.warning("Publisher tag not found in result item")
-                        continue
-                        
-                    publisher = publisher_tag.get("aria-label") or ""
-                    url = publisher_tag.get("href") or ""
-                    
-                    # Extract content and time
-                    if item.find("p"):
-                        content = unicodedata.normalize("NFKC", item.find("p").get_text(strip=True))
-                        content_list = content.split(" · ")
-                        if len(content_list) == 2:
-                            time = content_list[0]
-                            summary = content_list[1]
-                        else:
-                            time = ""
-                            summary = content_list[0]
-                    else:
-                        time = ""
-                        summary = ""
-                    
                     # Extract title
-                    title_tag = item.find("h2")
-                    title = title_tag.get_text(strip=True) if title_tag else ""
+                    title_tag = item.find('h3', class_='c-title t t tts-title')
+                    title = title_tag.get_text(strip=True) if title_tag else ''
+                    
+                    # Extract publisher
+                    publisher_tag = item.find('a', class_='siteLink_9TPP3')
+                    publisher = publisher_tag.get_text(strip=True) if publisher_tag else ''
+                    
+                    # Extract URL
+                    url_tag = item.find('a', class_='siteLink_9TPP3')
+                    url = url_tag['href'] if url_tag and 'href' in url_tag.attrs else ''
+                    
+                    # Extract summary
+                    summary_tag = item.find('span', class_='content-right_2s-H4')
+                    summary = summary_tag.get_text(strip=True) if summary_tag else ''
+                    
+                    # Extract time
+                    time_tag = item.find("span", class_="c-color-gray2")
+                    time = time_tag.get_text(strip=True) if time_tag else ''
                     
                     data = {
                         "title": title,
@@ -227,8 +220,11 @@ class BingSearch:
                     logger.warning("Error parsing search result item: %s", str(e))
                     continue
             
+            # Remove duplicates by converting to JSON strings and using a set
             if results:
-                logger.info("Parsed %d search results", len(results))
+                logger.debug("Removing duplicate results")
+                results = [json.loads(x) for x in set(json.dumps(d, sort_keys=True) for d in results)]
+                logger.info("Parsed %d unique search results", len(results))
                 return results
             else:
                 logger.warning("No valid search results found")
@@ -237,3 +233,4 @@ class BingSearch:
         except Exception as e:
             logger.error("Error parsing search results HTML: %s", str(e))
             return None
+

@@ -1,28 +1,28 @@
 """
-Baidu Search Engine Module.
+Sougou Search Engine Module.
 
-This module provides a class for performing searches on Baidu and parsing the results.
+This module provides a class for performing searches on Sougou and parsing the results.
 It uses a browser pool to manage browser instances efficiently.
 """
 
+from typing import List, Optional, Dict
 from bs4 import BeautifulSoup
-from browserpool import BrowserPool, BrowserPlaywright 
-from typing import Optional, List, Dict, Any
-import json
+# 修改导入路径
+from app.crawler.browserpool import BrowserPool, BrowserPlaywright
 import logging
 import asyncio
-from core import load_config
+from app.core import load_config
 
 # Get module logger that inherits from the root logger
 logger = logging.getLogger(__name__)
 
 # Default configuration
 default_config = {
-    'baidu_search': {
-        'base_url': 'https://www.baidu.com/',
-        'input_selector': 'input[name="wd"]',
-        'submit_selector': 'input#su',
-        'results_selector': 'div.c-container',
+    'sougou_search': {
+        'base_url': 'https://www.sogou.com',
+        'input_selector': 'input#query',
+        'submit_selector': 'input#stb',
+        'results_selector': 'div.vrwrap',
         'wait_time': 1000,  # milliseconds
         'timeout': 10000    # milliseconds
     }
@@ -32,30 +32,30 @@ default_config = {
 CONFIG = load_config(default_config) or default_config
 
 
-class BaiduSearch:
+class SougouSearch:
     """
-    A class for performing searches on Baidu and parsing the results.
+    A class for performing searches on Sougou and parsing the results.
     
     This class uses a browser pool to manage browser instances and provides
     methods for executing searches and parsing the results.
     
     Attributes:
         browser_pool (BrowserPool): The pool of browser instances to use.
-        base_url (str): The base URL for Baidu search.
+        base_url (str): The base URL for Sougou search.
         config (dict): Configuration parameters for the search.
     """
 
     def __init__(self, browser_pool: BrowserPool):
         """
-        Initialize a new BaiduSearch instance.
+        Initialize a new SougouSearch instance.
         
         Args:
             browser_pool (BrowserPool): The pool of browser instances to use.
         """
         self.browser_pool = browser_pool
-        self.config = CONFIG['baidu_search']
+        self.config = CONFIG['sougou_search']
         self.base_url = self.config['base_url']
-        #logger.info("BaiduSearch initialized with base URL: %s", self.base_url)
+        logger.info("SougouSearch initialized with base URL: %s", self.base_url)
 
     async def response(self, questions: Optional[List[str]]) -> Optional[Dict[str, List[Dict[str, str]]]]:
         """
@@ -97,7 +97,7 @@ class BaiduSearch:
 
         return results if results else None
 
-    async def run(self, browser: BrowserPlaywright, question: str) -> str:
+    async def run(self, browser: BrowserPlaywright, question: Optional[str]) -> str:
         """
         Execute a search query using the provided browser instance.
         
@@ -117,13 +117,20 @@ class BaiduSearch:
             return ""
             
         logger.debug("Creating new browser context and page")
-        context = await browser.browser.new_context()
-        page = await context.new_page()
+        context = None
+        page = None
         
         try:
+            # Create a new context with custom user agent
+            context = await browser.browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
+            )
+            page = await context.new_page()
+            
             # Navigate to the search page
             logger.debug("Navigating to %s", self.base_url)
             await page.goto(self.base_url, timeout=self.config['timeout'])
+            await page.wait_for_timeout(self.config['wait_time'])
             
             # Fill in the search query
             logger.debug("Entering search query: %s", question)
@@ -133,11 +140,11 @@ class BaiduSearch:
             # Submit the search
             logger.debug("Submitting search query")
             await page.click(self.config['submit_selector'])
+            await page.wait_for_timeout(self.config['wait_time'])
             
             # Wait for results to load
             logger.debug("Waiting for search results")
             await page.wait_for_selector(self.config['results_selector'], timeout=self.config['timeout'])
-            await page.wait_for_timeout(self.config['wait_time'])
             
             # Get the page content
             html = await page.content()
@@ -152,9 +159,12 @@ class BaiduSearch:
             raise
         finally:
             # Always close the page and context to avoid resource leaks
-            logger.debug("Closing browser page and context")
-            await page.close()
-            await context.close()
+            if page:
+                logger.debug("Closing browser page")
+                await page.close()
+            if context:
+                logger.debug("Closing browser context")
+                await context.close()
 
     def parsing(self, html: Optional[str]) -> Optional[List[Dict[str, str]]]:
         """
@@ -174,7 +184,7 @@ class BaiduSearch:
         try:
             logger.debug("Parsing search results HTML")
             soup = BeautifulSoup(html, "lxml")
-            items = soup.find_all("div", class_="c-container")
+            items = soup.find_all("div", class_="vrwrap")
             
             if not items:
                 logger.warning("No search result containers found in HTML")
@@ -185,46 +195,52 @@ class BaiduSearch:
             
             for item in items:
                 try:
-                    # Extract title
-                    title_tag = item.find('h3', class_='c-title t t tts-title')
-                    title = title_tag.get_text(strip=True) if title_tag else ''
+                    # Extract title and URL
+                    title_tag = item.select_one("h3.vr-title a")
+                    title = title_tag.get_text(strip=True) if title_tag else ""
+                    url = title_tag.get("href", "") if title_tag else ""
                     
-                    # Extract publisher
-                    publisher_tag = item.find('a', class_='siteLink_9TPP3')
-                    publisher = publisher_tag.get_text(strip=True) if publisher_tag else ''
-                    
-                    # Extract URL
-                    url_tag = item.find('a', class_='siteLink_9TPP3')
-                    url = url_tag['href'] if url_tag and 'href' in url_tag.attrs else ''
+                    # Handle relative URLs
+                    if url and url.startswith("/link?url="):
+                        url = f"{self.base_url}{url}"
                     
                     # Extract summary
-                    summary_tag = item.find('span', class_='content-right_2s-H4')
-                    summary = summary_tag.get_text(strip=True) if summary_tag else ''
+                    summary_tag = item.select_one("div.text-layout p.star-wiki")
+                    if summary_tag:
+                        summary = summary_tag.get_text(strip=True)
+                    else:
+                        alt_summary_tag = item.select_one("div.fz-mid.space-txt")
+                        summary = alt_summary_tag.get_text(strip=True) if alt_summary_tag else ""
+                    
+                    # Extract publisher
+                    publisher_tag = item.find("div", class_="citeurl")
+                    publisher = publisher_tag.get_text(strip=True) if publisher_tag else ""
                     
                     # Extract time
-                    time_tag = item.find("span", class_="c-color-gray2")
-                    time = time_tag.get_text(strip=True) if time_tag else ''
+                    time = ""
+                    if summary:
+                        time_parts = summary.split("-")
+                        if len(time_parts) == 2:
+                            time = time_parts[0].strip()
                     
-                    data = {
-                        "title": title,
-                        "publisher": publisher,
-                        "url": url,
-                        "summary": summary,
-                        "time": time
-                    }
-                    
-                    # Only add results with a URL
-                    if url:
+                    # Only add results with title and URL
+                    if title and url:
+                        data = {
+                            "title": title,
+                            "publisher": publisher,
+                            "url": url,
+                            "summary": summary,
+                            "time": time
+                        }
                         results.append(data)
+                    else:
+                        logger.debug("Skipping result without title or URL")
                 except Exception as e:
                     logger.warning("Error parsing search result item: %s", str(e))
                     continue
             
-            # Remove duplicates by converting to JSON strings and using a set
             if results:
-                logger.debug("Removing duplicate results")
-                results = [json.loads(x) for x in set(json.dumps(d, sort_keys=True) for d in results)]
-                logger.info("Parsed %d unique search results", len(results))
+                logger.info("Parsed %d search results", len(results))
                 return results
             else:
                 logger.warning("No valid search results found")
@@ -233,4 +249,5 @@ class BaiduSearch:
         except Exception as e:
             logger.error("Error parsing search results HTML: %s", str(e))
             return None
+
 

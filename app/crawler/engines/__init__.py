@@ -1,5 +1,5 @@
 from .baidusearch import BaiduSearch
-from.bingsearch import BingSearch
+from .bingsearch import BingSearch
 from .quarksearch import QuarkSearch
 from .sougousearch import SougouSearch 
 

@@ -1,28 +1,29 @@
 """
-Sougou Search Engine Module.
+Bing Search Engine Module.
 
-This module provides a class for performing searches on Sougou and parsing the results.
+This module provides a class for performing searches on Bing and parsing the results.
 It uses a browser pool to manage browser instances efficiently.
 """
 
-from typing import List, Optional, Dict
 from bs4 import BeautifulSoup
-from browserpool import BrowserPool, BrowserPlaywright
+from app.crawler.browserpool import BrowserPool, BrowserPlaywright
+from typing import Optional, List, Dict
+import unicodedata
 import logging
 import asyncio
-from core import load_config
+from app.core import load_config
 
 # Get module logger that inherits from the root logger
 logger = logging.getLogger(__name__)
 
 # Default configuration
 default_config = {
-    'sougou_search': {
-        'base_url': 'https://www.sogou.com',
-        'input_selector': 'input#query',
-        'submit_selector': 'input#stb',
-        'results_selector': 'div.vrwrap',
-        'wait_time': 1000,  # milliseconds
+    'bing_search': {
+        'base_url': 'https://cn.bing.com',
+        'input_selector': 'input#sb_form_q',
+        'results_selector': 'li.b_algo',
+        'wait_time': 500,  # milliseconds
+        'result_wait_time': 2000,  # milliseconds
         'timeout': 10000    # milliseconds
     }
 }
@@ -31,30 +32,30 @@ default_config = {
 CONFIG = load_config(default_config) or default_config
 
 
-class SougouSearch:
+class BingSearch:
     """
-    A class for performing searches on Sougou and parsing the results.
+    A class for performing searches on Bing and parsing the results.
     
     This class uses a browser pool to manage browser instances and provides
     methods for executing searches and parsing the results.
     
     Attributes:
         browser_pool (BrowserPool): The pool of browser instances to use.
-        base_url (str): The base URL for Sougou search.
+        base_url (str): The base URL for Bing search.
         config (dict): Configuration parameters for the search.
     """
 
     def __init__(self, browser_pool: BrowserPool):
         """
-        Initialize a new SougouSearch instance.
+        Initialize a new BingSearch instance.
         
         Args:
             browser_pool (BrowserPool): The pool of browser instances to use.
         """
         self.browser_pool = browser_pool
-        self.config = CONFIG['sougou_search']
+        self.config = CONFIG['bing_search']
         self.base_url = self.config['base_url']
-        logger.info("SougouSearch initialized with base URL: %s", self.base_url)
+        logger.info("BingSearch initialized with base URL: %s", self.base_url)
 
     async def response(self, questions: Optional[List[str]]) -> Optional[Dict[str, List[Dict[str, str]]]]:
         """
@@ -116,20 +117,13 @@ class SougouSearch:
             return ""
             
         logger.debug("Creating new browser context and page")
-        context = None
-        page = None
+        context = await browser.browser.new_context()
+        page = await context.new_page()
         
         try:
-            # Create a new context with custom user agent
-            context = await browser.browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36"
-            )
-            page = await context.new_page()
-            
             # Navigate to the search page
             logger.debug("Navigating to %s", self.base_url)
             await page.goto(self.base_url, timeout=self.config['timeout'])
-            await page.wait_for_timeout(self.config['wait_time'])
             
             # Fill in the search query
             logger.debug("Entering search query: %s", question)
@@ -138,12 +132,12 @@ class SougouSearch:
             
             # Submit the search
             logger.debug("Submitting search query")
-            await page.click(self.config['submit_selector'])
-            await page.wait_for_timeout(self.config['wait_time'])
+            await page.keyboard.press('Enter')
             
             # Wait for results to load
             logger.debug("Waiting for search results")
             await page.wait_for_selector(self.config['results_selector'], timeout=self.config['timeout'])
+            await page.wait_for_timeout(self.config['result_wait_time'])
             
             # Get the page content
             html = await page.content()
@@ -158,12 +152,9 @@ class SougouSearch:
             raise
         finally:
             # Always close the page and context to avoid resource leaks
-            if page:
-                logger.debug("Closing browser page")
-                await page.close()
-            if context:
-                logger.debug("Closing browser context")
-                await context.close()
+            logger.debug("Closing browser page and context")
+            await page.close()
+            await context.close()
 
     def parsing(self, html: Optional[str]) -> Optional[List[Dict[str, str]]]:
         """
@@ -183,7 +174,7 @@ class SougouSearch:
         try:
             logger.debug("Parsing search results HTML")
             soup = BeautifulSoup(html, "lxml")
-            items = soup.find_all("div", class_="vrwrap")
+            items = soup.find_all("li", class_=lambda x: x and "b_algo" in x)
             
             if not items:
                 logger.warning("No search result containers found in HTML")
@@ -194,46 +185,44 @@ class SougouSearch:
             
             for item in items:
                 try:
-                    # Extract title and URL
-                    title_tag = item.select_one("h3.vr-title a")
+                    # Extract publisher and URL
+                    publisher_tag = item.find("a", class_="tilk")
+                    if not publisher_tag:
+                        logger.warning("Publisher tag not found in result item")
+                        continue
+                        
+                    publisher = publisher_tag.get("aria-label") or ""
+                    url = publisher_tag.get("href") or ""
+                    
+                    # Extract content and time
+                    if item.find("p"):
+                        content = unicodedata.normalize("NFKC", item.find("p").get_text(strip=True))
+                        content_list = content.split(" · ")
+                        if len(content_list) == 2:
+                            time = content_list[0]
+                            summary = content_list[1]
+                        else:
+                            time = ""
+                            summary = content_list[0]
+                    else:
+                        time = ""
+                        summary = ""
+                    
+                    # Extract title
+                    title_tag = item.find("h2")
                     title = title_tag.get_text(strip=True) if title_tag else ""
-                    url = title_tag.get("href", "") if title_tag else ""
                     
-                    # Handle relative URLs
-                    if url and url.startswith("/link?url="):
-                        url = f"{self.base_url}{url}"
+                    data = {
+                        "title": title,
+                        "publisher": publisher,
+                        "url": url,
+                        "summary": summary,
+                        "time": time
+                    }
                     
-                    # Extract summary
-                    summary_tag = item.select_one("div.text-layout p.star-wiki")
-                    if summary_tag:
-                        summary = summary_tag.get_text(strip=True)
-                    else:
-                        alt_summary_tag = item.select_one("div.fz-mid.space-txt")
-                        summary = alt_summary_tag.get_text(strip=True) if alt_summary_tag else ""
-                    
-                    # Extract publisher
-                    publisher_tag = item.find("div", class_="citeurl")
-                    publisher = publisher_tag.get_text(strip=True) if publisher_tag else ""
-                    
-                    # Extract time
-                    time = ""
-                    if summary:
-                        time_parts = summary.split("-")
-                        if len(time_parts) == 2:
-                            time = time_parts[0].strip()
-                    
-                    # Only add results with title and URL
-                    if title and url:
-                        data = {
-                            "title": title,
-                            "publisher": publisher,
-                            "url": url,
-                            "summary": summary,
-                            "time": time
-                        }
+                    # Only add results with a URL
+                    if url:
                         results.append(data)
-                    else:
-                        logger.debug("Skipping result without title or URL")
                 except Exception as e:
                     logger.warning("Error parsing search result item: %s", str(e))
                     continue
@@ -248,5 +237,3 @@ class SougouSearch:
         except Exception as e:
             logger.error("Error parsing search results HTML: %s", str(e))
             return None
-
-
